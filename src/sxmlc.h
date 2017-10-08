@@ -30,7 +30,7 @@
 #ifndef _SXML_H_
 #define _SXML_H_
 
-#define SXMLC_VERSION "4.2.4"
+#define SXMLC_VERSION "4.2.7"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +63,7 @@ extern "C" {
 		#define sx_fopen fopen
 	#endif
 	#define sx_fclose fclose
+	#define sx_feof feof
 #else
 	typedef char SXML_CHAR;
 	#define C2SX(c) c
@@ -70,7 +71,7 @@ extern "C" {
 	#define sx_strcmp strcmp
 	#define sx_strncmp strncmp
 	#define sx_strlen strlen
-	#define sx_strdup __strdup
+	#define sx_strdup __sx_strdup
 	#define sx_strchr strchr
 	#define sx_strrchr strrchr
 	#define sx_strcpy strcpy
@@ -84,6 +85,7 @@ extern "C" {
 	#define sx_isspace(ch) isspace((int)ch)
 	#define sx_fopen fopen
 	#define sx_fclose fclose
+	#define sx_feof feof
 #endif
 
 #ifdef DBG_MEM
@@ -91,13 +93,13 @@ extern "C" {
 	void* __calloc(size_t count, size_t sz);
 	void* __realloc(void* mem, size_t sz);
 	void __free(void* mem);
-	char* __strdup(const char* s);
+	char* __sx_strdup(const char* s);
 #else
 	#define __malloc malloc
 	#define __calloc calloc
 	#define __realloc realloc
 	#define __free free
-	#define __strdup strdup
+	#define __sx_strdup strdup
 #endif
 
 #ifndef MEM_INCR_RLA

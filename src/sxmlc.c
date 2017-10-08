@@ -29,6 +29,10 @@
 */
 #if defined(WIN32) || defined(WIN64)
 #pragma warning(disable : 4996)
+#else
+#ifndef strdup
+#define _GNU_SOURCE
+#endif
 #endif
 
 #include <stdio.h>
@@ -1016,7 +1020,7 @@ int XML_parse_attribute_to(const SXML_CHAR* str, int to, XMLAttribute* xmlattr)
 	const SXML_CHAR *p;
 	int i, n0, n1, remQ = 0;
 	int ret = 1;
-	SXML_CHAR quote;
+	SXML_CHAR quote = '\0';
 	
 	if (str == NULL || xmlattr == NULL)
 		return 0;
@@ -1219,11 +1223,11 @@ parse_err:
 
 static int _parse_data_SAX(void* in, const DataSourceType in_type, const SAX_Callbacks* sax, SAX_Data* sd)
 {
-	SXML_CHAR *line, *txt_end, *p;
+	SXML_CHAR *line = NULL, *txt_end, *p;
 	XMLNode node;
 	int ret, exit, sz, n0, ncr;
 	TagType tag_type;
-	int (*meos)(void* ds) = (in_type == DATA_SOURCE_BUFFER ? (int(*)(void*))_beob : (int(*)(void*))feof);
+	int (*meos)(void* ds) = (in_type == DATA_SOURCE_BUFFER ? (int(*)(void*))_beob : (int(*)(void*))sx_feof);
 
 	if (sax->start_doc != NULL && !sax->start_doc(sd))
 		return true;
@@ -1234,6 +1238,7 @@ static int _parse_data_SAX(void* in, const DataSourceType in_type, const SAX_Cal
 	exit = false;
 	sd->line_num = 1; /* Line counter, starts at 1 */
 	sz = 0; /* 'line' buffer size */
+	node.init_value = 0;
 	(void)XMLNode_init(&node);
 	while ((n0 = read_line_alloc(in, in_type, &line, &sz, 0, NULC, C2SX('>'), true, C2SX('\n'), &ncr)) != 0) {
 		(void)XMLNode_free(&node);
@@ -1244,9 +1249,9 @@ static int _parse_data_SAX(void* in, const DataSourceType in_type, const SAX_Cal
 
 		/* Get text for 'father' (i.e. what is before '<') */
 		while ((txt_end = sx_strchr(line, C2SX('<'))) == NULL) { /* '<' was not found, indicating a probable '>' inside text (should have been escaped with '&gt;' but we'll handle that ;) */
-			n0 = read_line_alloc(in, in_type, &line, &sz, n0, 0, C2SX('>'), true, C2SX('\n'), &ncr); /* Go on reading the file from current position until next '>' */
+			int n1 = read_line_alloc(in, in_type, &line, &sz, n0, 0, C2SX('>'), true, C2SX('\n'), &ncr); /* Go on reading the file from current position until next '>' */
 			sd->line_num += ncr;
-			if (!n0) {
+			if (n1 <= n0) {
 				ret = false;
 				if (sax->on_error == NULL && sax->all_event == NULL)
 					sx_fprintf(stderr, C2SX("%s:%d: MEMORY ERROR.\n"), sd->name, sd->line_num);
@@ -1258,6 +1263,7 @@ static int _parse_data_SAX(void* in, const DataSourceType in_type, const SAX_Cal
 				}
 				break; /* 'txt_end' is still NULL here so we'll display the syntax error below */
 			}
+			n0 = n1;
 		}
 		if (txt_end == NULL) { /* Missing tag start */
 			ret = false;
@@ -1323,9 +1329,9 @@ static int _parse_data_SAX(void* in, const DataSourceType in_type, const SAX_Cal
 			default: /* Add 'node' to 'father' children */
 				/* If the line looks like a comment (or CDATA) but is not properly finished, loop until we find the end. */
 				while (tag_type == TAG_PARTIAL) {
-					n0 = read_line_alloc(in, in_type, &line, &sz, n0, NULC, C2SX('>'), true, C2SX('\n'), &ncr); /* Go on reading the file from current position until next '>' */
+					int n1 = read_line_alloc(in, in_type, &line, &sz, n0, NULC, C2SX('>'), true, C2SX('\n'), &ncr); /* Go on reading the file from current position until next '>' */
 					sd->line_num += ncr;
-					if (n0 == 0) {
+					if (n1 <= n0) {
 						ret = false;
 						if (sax->on_error == NULL && sax->all_event == NULL)
 							sx_fprintf(stderr, C2SX("%s:%d: SYNTAX ERROR.\n"), sd->name, sd->line_num);
@@ -1337,6 +1343,7 @@ static int _parse_data_SAX(void* in, const DataSourceType in_type, const SAX_Cal
 						}
 						break;
 					}
+					n0 = n1;
 					txt_end = sx_strchr(line, C2SX('<')); /* In case 'line' has been moved by the '__realloc' in 'read_line_alloc' */
 					tag_type = XML_parse_1string(txt_end, &node);
 					if (tag_type == TAG_ERROR) {
@@ -1605,7 +1612,7 @@ int XMLDoc_parse_file_SAX(const SXML_CHAR* filename, const SAX_Callbacks* sax, v
 	   the file is "plain" text (i.e. 1 byte = 1 character). If opened in binary mode, 'fgetwc'
 	   would read 2 bytes for 1 character, which would not work on "plain" files. */
 	if (bom == BOM_NONE || bom == BOM_UTF_8) {
-		fclose(f);
+		sx_fclose(f);
 		f = sx_fopen(filename, C2SX("rt"));
 		if (f == NULL)
 			return false;
@@ -1614,7 +1621,7 @@ int XMLDoc_parse_file_SAX(const SXML_CHAR* filename, const SAX_Callbacks* sax, v
 	}
 #endif
 	ret = _parse_data_SAX((void*)f, DATA_SOURCE_FILE, sax, &sd);
-	(void)fclose(f);
+	(void)sx_fclose(f);
 
 	return ret;
 }
@@ -1653,7 +1660,7 @@ int XMLDoc_parse_file_DOM_text_as_nodes(const SXML_CHAR* filename, XMLDoc* doc, 
 			//setvbuf(f, NULL, _IONBF, 0);
 			#endif
 			doc->bom_type = freadBOM(f, doc->bom, &doc->sz_bom);
-			fclose(f);
+			sx_fclose(f);
 		}
 	}
 #endif
@@ -1734,7 +1741,7 @@ void __free(void* mem)
 	free(mem);
 }
 
-char* __strdup(const char* s)
+char* __sx_strdup(const char* s)
 {
 /* Mimic the behavior of sx_strdup(), as we can't use it directly here: DBG_MEM is defined
    and sx_strdup is this function! (bug #5) */
@@ -1788,7 +1795,7 @@ int read_line_alloc(void* in, DataSourceType in_type, SXML_CHAR** line, int* sz_
 	int c;
 	int n, ret;
 	int (*mgetc)(void* ds) = (in_type == DATA_SOURCE_BUFFER ? (int(*)(void*))_bgetc : (int(*)(void*))sx_fgetc);
-	int (*meos)(void* ds) = (in_type == DATA_SOURCE_BUFFER ? (int(*)(void*))_beob : (int(*)(void*))feof);
+	int (*meos)(void* ds) = (in_type == DATA_SOURCE_BUFFER ? (int(*)(void*))_beob : (int(*)(void*))sx_feof);
 	
 	if (in == NULL || line == NULL)
 		return 0;
@@ -1800,9 +1807,10 @@ int read_line_alloc(void* in, DataSourceType in_type, SXML_CHAR** line, int* sz_
 		*interest_count = 0;
 	while (true) {
 		/* Reaching EOF before 'to' char is not an error but should trigger 'line' alloc and init to '' */
-		if ((c = mgetc(in)) == EOF)
-			break;
+		c = mgetc(in);
 		ch = (SXML_CHAR)c;
+		if (c == EOF)
+			break;
 		if (interest_count != NULL && ch == interest)
 			(*interest_count)++;
 		/* If 'from' is '\0', we stop here */
@@ -1819,7 +1827,8 @@ int read_line_alloc(void* in, DataSourceType in_type, SXML_CHAR** line, int* sz_
 		if (*line == NULL)
 			return 0;
 	}
-	if (i0 < 0) i0 = 0;
+	if (i0 < 0)
+		i0 = 0;
 	if (i0 > *sz_line)
 		return 0;
 	
