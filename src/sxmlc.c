@@ -273,7 +273,7 @@ int XMLNode_copy(XMLNode* dst, const XMLNode* src, int copy_children)
 	}
 
 	/* Text */
-	if (dst->text != NULL) {
+	if (src->text != NULL) {
 		dst->text = sx_strdup(src->text);
 		if (dst->text == NULL) goto copy_err;
 	}
@@ -302,6 +302,7 @@ int XMLNode_copy(XMLNode* dst, const XMLNode* src, int copy_children)
 		if (dst->children == NULL) goto copy_err;
 		dst->n_children = src->n_children;
 		for (i = 0; i < src->n_children; i++) {
+			dst->children[i] = XMLNode_allocN(1);
 			if (!XMLNode_copy(dst->children[i], src->children[i], true)) goto copy_err;
 		}
 	}
